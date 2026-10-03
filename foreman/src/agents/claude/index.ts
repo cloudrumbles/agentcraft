@@ -38,6 +38,7 @@ import { leadSystemPrompt, planPrompt, RESUME_PROMPT, reviewPrompt, workerSystem
 import { detectApiAuth, NO_API_AUTH_MESSAGE, withAuthMode } from './auth.js';
 import { StreamMapper, type TurnStats } from './stream.js';
 import { buildMcpServer, MCP_SERVER, type ToolHooks, type TurnHandle } from './tools.js';
+import { checkProxyModels, withProxyEnv, redactProxySecrets, type CliProxyConfig } from '../cli-proxy.js';
 import { userName } from '../../user.js';
 
 type JobKind = 'plan' | 'work' | 'review' | 'followup';
@@ -120,6 +121,7 @@ export function agentEnv(base: NodeJS.ProcessEnv = process.env, who: { agentId?:
 }
 
 export interface ClaudeBackendOptions {
+  cliProxy?: CliProxyConfig;
   /** injectable for tests */
   queryFn?: typeof query;
   /** skip the startup auth probe (tests) */
@@ -127,7 +129,7 @@ export interface ClaudeBackendOptions {
 }
 
 export class ClaudeBackend implements Backend {
-  readonly name = 'claude' as const;
+  readonly name: 'claude' | 'cli-proxy';
   private queues = new Map<string, Job[]>();
   private running = new Map<string, Running>();
   private pausedJobs = new Map<string, Job>();
@@ -154,6 +156,7 @@ export class ClaudeBackend implements Backend {
     private cfg: ClaudeConfig,
     private opts: ClaudeBackendOptions = {},
   ) {
+    this.name = opts.cliProxy ? 'cli-proxy' : 'claude';
     this.queryFn = opts.queryFn ?? query;
     this.hooks = {
       onReview: () => {
@@ -222,6 +225,18 @@ export class ClaudeBackend implements Backend {
   }
 
   async checkAuth(): Promise<boolean> {
+    if (this.opts.cliProxy && !this.opts.skipAuthCheck) {
+      this.fm.setStatus({ auth: 'checking', message: 'Checking CLIProxyAPI models...' });
+      try {
+        await checkProxyModels(this.opts.cliProxy, [LEAD, ...this.team].map((id) => this.modelFor(id)));
+        this.authFailed = false;
+        this.fm.setStatus({ auth: 'ok', account: 'CLIProxyAPI', message: `CLIProxyAPI: ${[LEAD, ...this.team].map((id) => `${id} ${this.modelFor(id)}`).join(', ')}` });
+        return true;
+      } catch (error) {
+        this.markAuthFailed((error as Error).message);
+        return false;
+      }
+    }
     if (this.opts.skipAuthCheck) {
       this.fm.setStatus({ auth: 'ok', message: `Claude (lead ${this.cfg.leadModel}, workers ${this.cfg.workerModel})` });
       return true;
@@ -592,8 +607,17 @@ export class ClaudeBackend implements Backend {
     }
   }
 
+  private redact(text: string): string {
+    return this.opts.cliProxy ? redactProxySecrets(text, this.opts.cliProxy) : text;
+  }
+
+  modelFor(agentId: string): string {
+    return this.cfg.agentModels?.[agentId] ?? (agentId === LEAD ? this.cfg.leadModel : this.cfg.workerModel);
+  }
+
   private env(who: { agentId?: string; cwd?: string } = {}): Record<string, string | undefined> {
-    return withAuthMode(agentEnv(process.env, who), this.cfg.useClaudeLogin);
+    const env = withAuthMode(agentEnv(process.env, who), this.cfg.useClaudeLogin);
+    return this.opts.cliProxy ? withProxyEnv(env, this.opts.cliProxy, this.modelFor(who.agentId ?? LEAD)) : env;
   }
 
   private cwdFor(job: Job): { cwd: string; role: 'lead' | 'worker' } {
@@ -679,7 +703,11 @@ export class ClaudeBackend implements Backend {
       const where = this.cwdFor(job);
       cwd = where.cwd;
       const role = where.role;
+      const model = this.modelFor(agentId);
       const session = this.fm.store.data.sessions[job.sessionKey];
+      if (this.opts.cliProxy && !job.fresh && session?.sessionId && session.model && session.model !== model) {
+        throw new Error(`Session model changed from ${session.model} to ${model}; restore its model or use a new profile to avoid mixing provider session history`);
+      }
       const resume = !job.fresh && session?.sessionId ? session.sessionId : undefined;
       this.st.inflight[agentId] = { kind: job.kind, sessionKey: job.sessionKey, startedAt: Date.now(), ...(job.taskId ? { taskId: job.taskId } : {}), ...(job.goalId ? { goalId: job.goalId } : {}) };
       this.fm.store.markDirty();
@@ -690,7 +718,6 @@ export class ClaudeBackend implements Backend {
         const t = this.fm.tasks.require(job.taskId!);
         systemAppend = workerSystemPrompt(this.fm, agentId, this.fm.repos.requireWorktree(t.repoId!, t.worktree!));
       }
-      const model = role === 'lead' ? this.cfg.leadModel : this.cfg.workerModel;
       const options: Options = {
         cwd,
         model,
@@ -711,8 +738,8 @@ export class ClaudeBackend implements Backend {
         spawnClaudeCodeProcess: (o) => {
           const child = spawn(o.command, o.args, { cwd: o.cwd, env: o.env as NodeJS.ProcessEnv, stdio: ['pipe', 'pipe', 'pipe'], signal: o.signal, windowsHide: true });
           child.stderr?.setEncoding('utf8');
-          child.stderr?.on('data', (s: string) => this.fm.log.debug(`[${agentId} stderr] ${s.trim().slice(0, 300)}`));
-          child.on('error', (e) => this.fm.log.debug(`[${agentId}] CLI process error: ${e.message}`));
+          child.stderr?.on('data', (s: string) => this.fm.log.debug(`[${agentId} stderr] ${this.redact(s).trim().slice(0, 300)}`));
+          child.on('error', (e) => this.fm.log.debug(`[${agentId}] CLI process error: ${this.redact(e.message)}`));
           entry.child = child;
           entry.spawnedAt = Date.now();
           return child;
@@ -744,7 +771,8 @@ export class ClaudeBackend implements Backend {
         else abort.signal.addEventListener('abort', closeQuery, { once: true });
         for await (const msg of q) {
           if (abort.signal.aborted) break; // nothing from an aborted turn reaches the world
-          mapper.handle(msg);
+          // Error/result bodies are persisted as logs; never retain an echoed gateway key.
+          mapper.handle(this.opts.cliProxy ? JSON.parse(JSON.stringify(msg, (_key, value: unknown) => typeof value === 'string' ? this.redact(value) : value)) as typeof msg : msg);
           if (mapper.stats.sessionId && this.fm.store.data.sessions[job.sessionKey]?.sessionId !== mapper.stats.sessionId) {
             this.recordSession(job.sessionKey, mapper.stats.sessionId, model);
           }
@@ -754,14 +782,14 @@ export class ClaudeBackend implements Backend {
       }
       stats = mapper.stats;
       if (stats.sessionId) this.recordSession(job.sessionKey, stats.sessionId, model, stats);
-      if (stats.authFailed) this.markAuthFailed(`Claude authentication failed (${stats.authFailed}). Run \`claude\` and /login, then restart the Foreman.`);
+      if (stats.authFailed) this.markAuthFailed(this.opts.cliProxy ? `CLIProxyAPI authentication failed (${stats.authFailed}); check the proxy client key and restart the Foreman` : `Claude authentication failed (${stats.authFailed}). Run \`claude\` and /login, then restart the Foreman.`);
     } catch (e) {
       const aborted = abort.signal.aborted;
       if (!aborted) {
-        const msg = (e as Error).message ?? String(e);
+        const msg = this.redact((e as Error).message ?? String(e));
         this.fm.log.error(`${agentId} ${job.kind} failed: ${msg}`);
         this.fm.agentLog(agentId, 'error', `session error: ${truncate(msg, 400)}`);
-        if (/auth|login|credential|401/i.test(msg)) this.markAuthFailed(`Claude authentication failed: ${truncate(msg, 160)}`);
+        if (/auth|login|credential|401/i.test(msg)) this.markAuthFailed(`${this.opts.cliProxy ? "CLIProxyAPI" : "Claude"} authentication failed: ${truncate(msg, 160)}`);
         stats = { isError: true, errors: [msg] };
       }
     } finally {

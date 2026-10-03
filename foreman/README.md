@@ -1,3 +1,5 @@
+> This fork also supports the `cli-proxy` backend with per-agent model routing. See [Linux + CLIProxyAPI](../README.md#linux--cliproxyapi) for setup, aliases, security and verification limits.
+
 # AgentCraft Foreman
 
 The Foreman is the brain of AgentCraft: a Node 22 + TypeScript service that runs a team of Claude

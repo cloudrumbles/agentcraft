@@ -163,9 +163,99 @@ AgentCraft is built to point at code you care about.
 
 <br>
 
+## Linux + CLIProxyAPI
+
+This fork adds Linux support and a mixed-model team while retaining the upstream worktrees,
+permission prompts, MCP tools, streaming monitors, session recovery and human-approved merges.
+The original `claude` and `sim` backends remain available.
+
+You need Node 22+, git, and **Java 25** for the Minecraft client. Set `JAVA_HOME` to a JDK 25
+installation if it is not on `PATH`. A graphical Linux session with working OpenGL is required
+for the game; `--no-game` runs the Foreman on a headless machine without Java. Desktop notices
+use optional `notify-send` (usually supplied by `libnotify-bin` / `libnotify`).
+
+```sh
+git clone --branch linux-cli-proxy https://github.com/cloudrumbles/agentcraft.git
+cd agentcraft
+node tools/linux.mjs launch --backend sim
+node tools/linux.mjs stop --profile sim
+```
+
+For real agents, first run your own [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI)
+instance with access to both model families. Configure its upstream accounts yourself. AgentCraft
+does not install the proxy, perform provider logins, or change your global Claude settings.
+
+The `cli-proxy` backend enables the whole team by default:
+
+| Agent | Model |
+| --- | --- |
+| Marlow, Wren | `claude-opus-5-5` |
+| Juniper, Kit, Rowan, Tove | `gpt-6.1-sol` |
+
+These identifiers come from the [Anthropic model documentation](https://www.anthropic.com/claude/opus)
+and [OpenAI model documentation](https://developers.openai.com/api/docs/models/gpt-6.1-sol).
+They must also be present in **your proxy's** `/v1/models` listing; AgentCraft refuses missing
+models instead of substituting another one. Explicit aliases are supported through overrides.
+
+```sh
+# Read the proxy CLIENT key without putting it in shell history or a tracked file.
+read -r -s -p 'CLIProxyAPI client key: ' CLIPROXY_API_KEY; echo
+export CLIPROXY_API_KEY
+export AGENTCRAFT_PROXY_BASE_URL=http://127.0.0.1:8317
+node tools/linux.mjs launch --backend cli-proxy --repo /path/to/your/repo
+# Foreman only:
+node tools/linux.mjs launch --backend cli-proxy --repo /path/to/your/repo --no-game
+node tools/linux.mjs stop --profile cli-proxy
+```
+
+The endpoint is the **Anthropic-compatible gateway root**; a trailing `/v1` is normalized away.
+AgentCraft uses the real Claude Agent SDK and sends Messages requests to the gateway, which owns
+the provider translation, including tool calls. **GPT-6.1 Sol requires a Responses-capable upstream
+for tools.** Configure it through CLIProxyAPI's Codex/Responses provider route; a Chat-Completions-only
+upstream is not sufficient. Do not turn off AgentCraft permissions to make the proxy work.
+The SDK may emit an `unrecognized_model` warning for GPT; this is not a model substitution.
+Only use a gateway you trust with repository contents and prompts. Model-list preflight blocks
+redirects; Messages traffic follows the bundled SDK's transport behavior.
+
+Non-secret settings can live in `~/.agentcraft/config.json`:
+
+```json
+{
+  "backend": "cli-proxy",
+  "cliProxy": {
+    "baseUrl": "http://127.0.0.1:8317",
+    "apiKeyEnv": "CLIPROXY_API_KEY"
+  },
+  "claude": {
+    "leadModel": "claude-opus-5-5",
+    "workerModel": "gpt-6.1-sol",
+    "agentModels": { "wren": "claude-opus-5-5" },
+    "workers": ["juniper", "kit", "wren", "rowan", "tove"]
+  }
+}
+```
+
+Keep the key in the named environment variable, not this file. Remote endpoints require HTTPS;
+plain HTTP is accepted only for loopback. Gateway preflight is a read-only model-list request,
+not a paid completion. It cannot verify upstream quota or real model behavior. Submitting a goal
+uses your configured provider account and may incur costs. SDK cost estimates and `--max-budget`
+may be inaccurate for non-Anthropic models; set actual limits at your gateway/provider.
+
+Override aliases with `AGENTCRAFT_AGENT_MODELS='marlow=my-opus,wren=my-opus,kit=my-sol'`, or pass
+`--agent-models` to the Foreman through `--foreman-arg`. Per-agent mappings take priority over
+role-wide `--model`, `--lead-model`, and `--worker-model`. Within the per-agent map, config file
+values are overridden by environment values, then CLI values. Without an explicit per-agent map,
+`--model` changes everybody and `--worker-model` changes all workers including Wren. Use a new
+profile when changing a model for an existing session; mixed-provider session history is refused.
+`--use-claude-login` cannot be combined with `cli-proxy`.
+
+Tested with local mock gateways: both exact model IDs, real SDK streaming MCP tool round trips,
+session resume, cancellation, model-list validation, configuration and permission integration.
+Live provider credentials and Minecraft rendering must be verified in your own setup.
+
 ## Quick start
 
-**You need:** Windows 10 or 11, or macOS, Java 25, Node 22+, git, and a copy of
+**You need:** Linux, Windows 10 or 11, or macOS, Java 25, Node 22+, git, and a copy of
 Minecraft: Java Edition.
 
 **For the real agents** you need Claude API access, either of these:

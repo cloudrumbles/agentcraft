@@ -29,7 +29,7 @@ public final class ForemanJson {
 		return GSON.fromJson(json, type);
 	}
 
-	/** Deserialize wire enums by lower-case name; unknown values become the enum's UNKNOWN constant (or null). */
+	/** Deserialize enums by their explicit wire value; unknown values become the enum's UNKNOWN constant (or null). */
 	private static final class WireEnumFactory implements TypeAdapterFactory {
 		@Override
 		@SuppressWarnings({"unchecked", "rawtypes"})
@@ -42,7 +42,7 @@ public final class ForemanJson {
 			Enum<?> unknown = null;
 			for (Object c : raw.getEnumConstants()) {
 				Enum<?> e = (Enum<?>) c;
-				byWire.put(e.name().toLowerCase(Locale.ROOT), e);
+				byWire.put(((Protocol.Wire) e).wire(), e);
 				if (e.name().equals("UNKNOWN")) {
 					unknown = e;
 				}

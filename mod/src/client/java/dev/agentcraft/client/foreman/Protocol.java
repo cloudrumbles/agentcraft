@@ -87,7 +87,12 @@ public final class Protocol {
 	}
 
 	public enum BackendName implements Wire {
-		SIM, CLAUDE, UNKNOWN
+		SIM, CLAUDE, CLI_PROXY, UNKNOWN;
+
+		@Override
+		public String wire() {
+			return this == CLI_PROXY ? "cli-proxy" : name().toLowerCase(Locale.ROOT);
+		}
 	}
 
 	public enum AuthStatus implements Wire {

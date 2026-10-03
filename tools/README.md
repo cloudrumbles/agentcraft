@@ -1,5 +1,63 @@
 # tools/
 
+## Linux
+
+Requires Node 22+ and git. The Minecraft client additionally needs a Java **25 JDK**
+and a graphical Linux session with working OpenGL drivers (X11 or Wayland).
+Install JDK 25 through your distribution or a JDK vendor such as
+[Eclipse Temurin](https://adoptium.net/temurin/releases/?version=25), then set
+`JAVA_HOME` to its installation directory if it is not selected on `PATH`.
+The launcher also checks `/usr/lib/jvm`, `/usr/java`, `/opt/java`, `/opt/jdk` and
+SDKMAN installations. Both `java` and `javac` must be present; Java 21 is too old.
+
+```sh
+node tools/linux.mjs launch --backend sim            # free simulated team
+node tools/linux.mjs stop --profile sim
+node tools/linux.mjs launch --backend cli-proxy --repo /path/to/repo
+node tools/linux.mjs stop --profile cli-proxy
+node tools/linux.mjs launch --repo /path/to/repo --use-claude-login
+node tools/linux.mjs stop                            # default Claude profile
+```
+
+For the `cli-proxy` backend, configure the local OpenAI-compatible proxy as described
+in the [main README](../README.md). The launcher inherits your environment and forwards
+the backend choice to Foreman. It does not start or configure a proxy service for you.
+Pass additional backend options with repeated `--foreman-arg` flags.
+
+On a server, over SSH, or without Java 25, run just the Foreman:
+
+```sh
+node tools/linux.mjs launch --backend sim --no-game
+node tools/linux.mjs stop --foreman --profile sim
+# The real proxy backend can also run without a desktop:
+node tools/linux.mjs launch --backend cli-proxy --no-game --repo /path/to/repo
+node tools/linux.mjs stop --foreman --profile cli-proxy
+```
+
+`--no-game` skips Java detection and Gradle entirely. A desktop client must be run in a
+graphical session; the launcher reports a clear error when neither `DISPLAY` nor
+`WAYLAND_DISPLAY` is set. Minimal Linux installations may also need their distribution's
+graphics, window-system and audio runtime libraries. No desktop/game smoke test is implied
+by a successful Foreman-only start.
+
+Linux and macOS share `lib/unix-launcher.mjs` and the same options. `--dev` means muted,
+no focus and no desktop notifications; `--no-foreman` starts only the client;
+`--no-wait` returns while Minecraft builds. `--showcase busy` / `--showcase late` select
+the simulator and isolated showcase profiles. `--summary-json PATH` writes the result,
+including component PIDs, ports and logs when started or reused.
+
+Linux logs and process records live in `artifacts/logs/linux-*.log` and
+`artifacts/run/linux-*.json`. `stop` only signals a recorded process whose Linux boot ID
+and process start ticks still match, so it does not kill unrelated services or reused
+PIDs. Use the same `--profile` as launch; `--game` and `--foreman` select a component.
+Game shutdown first asks DevBridge to save and quit. Linux runs Gradle with `--no-daemon`;
+`--stop-daemon` additionally stops only daemons using this checkout's `.gradle-home`.
+The screenshot QA runner, `node tools/qa.mjs`, selects `linux.mjs` on Linux.
+
+Desktop notifications use the optional `notify-send` program (commonly supplied by
+`libnotify-bin` or `libnotify`) and your desktop notification service. Missing notification
+support does not stop Foreman; headless sessions skip desktop notifications.
+
 ## macOS
 
 Requires Node 22+, git, and Java 25. Install Java with `brew install openjdk@25`;
@@ -97,6 +155,7 @@ Screenshot QA (scene format, anchor contract, judging): [docs/QA.md](../docs/QA.
 
 | file | |
 | --- | --- |
+| `linux.mjs`, `mac.mjs`, `lib/unix-launcher.mjs` | shared Linux/macOS launcher and safe stop |
 | `launch.ps1`, `stop.ps1`, `launch.cmd`, `stop.cmd` | launcher |
 | `lib/procs.ps1` | shared PowerShell helpers (run files, process identity, Ctrl+Break, ports) |
 | `lib/bgrun.mjs` | background runner: owns the log files and the hidden console of a background process |

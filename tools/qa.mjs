@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// QA runner: showcase Foreman + game (Windows launch.ps1 or macOS mac.mjs), the QA scene, a contact
+// QA runner: showcase Foreman + game (Windows, macOS or Linux launcher), the QA scene, a contact
 // sheet and a manifest, then it stops exactly what it started. See docs/QA.md.
 //
 //   node tools/qa.mjs [--showcase busy|late] [--scene tools/scenes/qa.json] [--only qa01_exterior_hero,...]
@@ -26,6 +26,7 @@ import { contactSheet, COLORS } from './lib/contactsheet.mjs';
 
 const TOOLS = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(TOOLS, '..');
+const unixLauncher = process.platform === 'darwin' ? 'mac.mjs' : 'linux.mjs';
 const log = (m) => process.stderr.write(`[qa] ${m}\n`);
 
 // --- args ------------------------------------------------------------------------------------------
@@ -80,7 +81,7 @@ function runLauncher(action, args, logFile) {
       : process.execPath;
     const argv = windows
       ? ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', path.join(TOOLS, action === 'launch' ? 'launch.ps1' : 'stop.ps1'), ...args]
-      : [path.join(TOOLS, 'mac.mjs'), action, ...args];
+      : [path.join(TOOLS, unixLauncher), action, ...args];
     const child = spawn(command, argv, { cwd: ROOT, windowsHide: true });
     const out = fs.createWriteStream(logFile);
     const pipe = (d) => { out.write(d); process.stderr.write(String(d).replace(/^(?=.)/gm, '    ')); };
@@ -128,7 +129,7 @@ if (!opt['no-launch']) {
   }
   // something answering that launch.ps1 did not start (or another profile): use it as-is
   if (gameUp) log(`a game already answers on DevBridge :${devPort}; using it`);
-  log(`launching: ${windows ? 'tools/launch.ps1' : 'tools/mac.mjs launch'} ${args.join(' ')}${gameUp ? ' (game already running)' : ''}`);
+  log(`launching: ${windows ? 'tools/launch.ps1' : `tools/${unixLauncher} launch`} ${args.join(' ')}${gameUp ? ' (game already running)' : ''}`);
   launchCode = await runLauncher('launch', gameUp ? [...args, windows ? '-NoGame' : '--no-game'] : args, path.join(outDir, 'launch.log'));
   try { launch = JSON.parse(fs.readFileSync(launchSummaryPath, 'utf8').replace(/^\uFEFF/, '')); } catch {}
   if (launchCode !== 0) {

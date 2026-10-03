@@ -4,6 +4,7 @@ import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Decision } from '../src/protocol.js';
 import { MERGE_OPTIONS } from '../src/protocol.js';
+import { parseTestOutput } from '../src/repos.js';
 import { git, gitOut } from '../src/util/git.js';
 import { demoRepo, makeForeman, rmrf, tempDir, type Harness } from './helpers.js';
 
@@ -25,6 +26,27 @@ afterAll(async () => {
 function mergeDecision(repoId: string, worktree: string, taskId?: string): Decision {
   return h.fm.createDecision({ agentId: 'marlow', kind: 'merge', question: `Merge ${worktree}?`, options: [...MERGE_OPTIONS], repoId, worktree, ...(taskId ? { taskId } : {}) });
 }
+
+describe('parseTestOutput', () => {
+  it('retains TAP summaries and failing test names', () => {
+    expect(parseTestOutput('not ok 2 - broken assertion\n# tests 3\n# pass 2\n# fail 1\n')).toEqual({
+      failures: ['broken assertion'], summary: 'tests 3, pass 2, fail 1',
+    });
+  });
+
+  it('reads Node 24 spec-reporter summaries', () => {
+    expect(parseTestOutput('✔ passing test (1ms)\nℹ tests 1\nℹ pass 1\nℹ fail 0\nℹ duration_ms 8\n')).toEqual({
+      failures: [], summary: 'tests 1, pass 1, fail 0',
+    });
+  });
+
+  it('handles colored output and CRLF without inventing summary counts', () => {
+    expect(parseTestOutput('\u001b[31m✖ broken assertion\u001b[39m\r\n\u001b[36mℹ tests 2\u001b[39m\r\nℹ pass 1\r\nℹ fail 1\r\n')).toEqual({
+      failures: ['broken assertion'], summary: 'tests 2, pass 1, fail 1',
+    });
+    expect(parseTestOutput('ordinary program output\npass 2\nfail 0\n')).toEqual({ failures: [] });
+  });
+});
 
 describe('RepoManager', () => {
   it('registers a repo and refuses non-git paths', async () => {

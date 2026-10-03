@@ -26,7 +26,7 @@
 - <a id="feedkind"></a>**FeedKind**: `goal`, `plan`, `task`, `message`, `decision`, `merge`, `ci`, `memory`, `system`, `error`, `user`
 - <a id="notifylevel"></a>**NotifyLevel**: `info`, `warn`, `need_user`
 - <a id="worktreestatus"></a>**WorktreeStatus**: `active`, `merged`, `abandoned`
-- <a id="backendname"></a>**BackendName**: `sim`, `claude`
+- <a id="backendname"></a>**BackendName**: `sim`, `claude`, `cli-proxy`
 - <a id="authstatus"></a>**AuthStatus**: `ok`, `failed`, `unknown`, `checking` - `failed` must be shown loudly (in-world banner): the claude backend cannot run.
 
 Exact option labels: merge decisions use `Merge`, `Request changes`, `Reject`; permission decisions use `Allow once`, `Always allow for this agent`, `Deny`. Question decisions use agent-supplied options (may be empty: free text).

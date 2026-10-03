@@ -61,7 +61,7 @@ export type NotifyLevel = z.infer<typeof NotifyLevel>;
 export const WorktreeStatus = z.enum(['active', 'merged', 'abandoned']);
 export type WorktreeStatus = z.infer<typeof WorktreeStatus>;
 
-export const BackendName = z.enum(['sim', 'claude']);
+export const BackendName = z.enum(['sim', 'claude', 'cli-proxy']);
 export type BackendName = z.infer<typeof BackendName>;
 
 export const AuthStatus = z

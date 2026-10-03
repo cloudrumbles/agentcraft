@@ -68,7 +68,7 @@ public final class ConnectionBanner implements HudElement {
 		} else if (link.synced()) {
 			dot = fs != null && fs.auth() == AuthStatus.FAILED ? "error" : fs != null && fs.auth() == AuthStatus.CHECKING ? "thinking" : "working";
 			title = "Foreman · " + backendLabel(fs);
-			if (fs != null && fs.backend() == BackendName.CLAUDE && fs.account() != null) {
+			if (fs != null && (fs.backend() == BackendName.CLAUDE || fs.backend() == BackendName.CLI_PROXY) && fs.account() != null) {
 				detail = fs.account();
 			}
 			if (now - link.sinceMs() > FADE_AFTER_MS) {
@@ -98,6 +98,7 @@ public final class ConnectionBanner implements HudElement {
 		return switch (fs.backend()) {
 			case SIM -> fs.speed() != null && fs.speed() != 1.0 ? "sim ×" + trim(fs.speed()) : "sim";
 			case CLAUDE -> "claude";
+			case CLI_PROXY -> "CLIProxyAPI";
 			default -> fs.backend().wire();
 		};
 	}

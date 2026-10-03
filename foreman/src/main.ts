@@ -61,7 +61,7 @@ export async function main(argv: string[]): Promise<void> {
   }
 
   const foreman = new Foreman({ config: cfg, logger: log });
-  const backend = cfg.backend === 'sim' ? new SimBackend(foreman, cfg.sim) : new ClaudeBackend(foreman, cfg.claude);
+  const backend = cfg.backend === 'sim' ? new SimBackend(foreman, cfg.sim) : new ClaudeBackend(foreman, cfg.claude, cfg.backend === 'cli-proxy' ? { cliProxy: cfg.cliProxy } : {});
   const server = new ForemanServer(foreman, { host: cfg.host, port: cfg.port, allowBrowserOrigins: cfg.allowBrowserOrigins, validateOutbound: cfg.debug, log });
 
   try {

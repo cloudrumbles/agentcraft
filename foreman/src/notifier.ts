@@ -1,6 +1,6 @@
 // Notifier: tells the user (outside the game) that a decision is waiting.
 //
-//  - Windows toast via PowerShell + Windows.UI.Notifications; macOS notification via osascript
+//  - Windows toast via PowerShell; macOS via osascript; Linux via optional notify-send
 //  - console bell on the Foreman's terminal (only when stdout is a TTY)
 //  - rate-limited and coalesced: at most one toast per `minIntervalMs`; decisions that arrive
 //    inside the window are summarised in the next toast
@@ -83,9 +83,37 @@ export function showMacNotification(title: string, body: string, silent: boolean
   });
 }
 
+/** Use the desktop's libnotify service when available; never invoke a shell. */
+export function showLinuxNotification(title: string, body: string, silent: boolean): Promise<boolean> {
+  if (process.platform !== 'linux' || (!process.env.DISPLAY && !process.env.WAYLAND_DISPLAY)) return Promise.resolve(false);
+  const args = ['--app-name', 'AgentCraft', '--icon', 'dialog-information'];
+  if (silent) args.push('--hint', 'boolean:suppress-sound:true');
+  // The body supports notification markup; show user/agent text literally.
+  // `--` also prevents titles starting with a dash from becoming CLI options.
+  args.push('--', title, xmlEscape(body));
+  return new Promise((resolve) => {
+    let child;
+    try { child = spawn('notify-send', args, { stdio: 'ignore', shell: false }); }
+    catch { resolve(false); return; }
+    const timer = setTimeout(() => {
+      child.kill();
+      resolve(false);
+    }, 15_000);
+    child.on('error', () => {
+      clearTimeout(timer);
+      resolve(false);
+    });
+    child.on('close', (code) => {
+      clearTimeout(timer);
+      resolve(code === 0);
+    });
+  });
+}
+
 export function showDesktopNotification(title: string, body: string, silent: boolean): Promise<boolean> {
   if (process.platform === 'win32') return showWindowsToast(title, body, silent);
   if (process.platform === 'darwin') return showMacNotification(title, body, silent);
+  if (process.platform === 'linux') return showLinuxNotification(title, body, silent);
   return Promise.resolve(false);
 }
 
